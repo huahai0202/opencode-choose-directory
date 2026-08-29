@@ -1,6 +1,6 @@
 {
   "name": "opencode-choose-directory",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Windows directory picker for the OpenCode V2 home screen.",
   "license": "MIT",
   "type": "module",

@@ -253,7 +253,9 @@ export default Plugin.define({
     }
 
     return context.ui.slot({
-      append: "prompt.footer.status",
+      // The outer footer renders status/file content first, so appending here
+      // keeps the button at the far right regardless of plugin load order.
+      append: "prompt.footer",
       render: ({ sessionID }) => (sessionID ? <></> : <DirectoryButton onClick={() => void run()} />),
     })
   },

@@ -10,6 +10,7 @@ The button opens the native Windows Explorer-style folder picker. Selecting a di
 ## Features
 
 - Visible only on the OpenCode home screen
+- Positioned at the far right of the home footer
 - Native Windows `IFileDialog` folder picker
 - Explorer-style address bar, search, navigation tree, and folder list
 - Preserves the selected directory until the first prompt is submitted
@@ -38,7 +39,7 @@ Restart `opencode2` after installation.
 To install a specific version:
 
 ```powershell
-opencode2 plugin add opencode-choose-directory@0.1.1
+opencode2 plugin add opencode-choose-directory@0.1.2
 ```
 
 The package is available at [npmjs.com/package/opencode-choose-directory](https://www.npmjs.com/package/opencode-choose-directory).
@@ -94,7 +95,7 @@ opencode2 plugin remove opencode-choose-directory
 
 ## How It Works
 
-1. The plugin appends a button to the `prompt.footer.status` TUI slot.
+1. The plugin appends a button to the outer `prompt.footer` TUI slot so it stays at the far right.
 2. The slot input supplies `sessionID`; the button renders only when it is absent.
 3. Clicking the button launches hidden Windows PowerShell in STA mode.
 4. PowerShell creates the native `IFileDialog` COM picker with `FOS_PICKFOLDERS`.
