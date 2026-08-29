@@ -1,12 +1,12 @@
 {
   "name": "opencode-choose-directory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows directory picker for the OpenCode V2 home screen.",
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/huahai0202/opencode-choose-directory.git"
+    "url": "git+https://github.com/huahai0202/opencode-choose-directory.git"
   },
   "keywords": [
     "opencode",

@@ -1,5 +1,8 @@
 # opencode-choose-directory
 
+[![npm version](https://img.shields.io/npm/v/opencode-choose-directory.svg)](https://www.npmjs.com/package/opencode-choose-directory)
+[![license](https://img.shields.io/npm/l/opencode-choose-directory.svg)](LICENSE)
+
 Windows-only OpenCode V2 TUI plugin that adds a **选择目录** button to the home screen.
 
 The button opens the native Windows Explorer-style folder picker. Selecting a directory keeps OpenCode on the home screen; OpenCode creates the session in that directory only after the first prompt is submitted.
@@ -22,7 +25,41 @@ The button opens the native Windows Explorer-style folder picker. Selecting a di
 
 ## Install
 
-Clone the repository into your OpenCode configuration directory:
+### npm (recommended)
+
+Install the latest version from npm and add it to the global OpenCode configuration:
+
+```powershell
+opencode2 plugin add opencode-choose-directory
+```
+
+Restart `opencode2` after installation.
+
+To install a specific version:
+
+```powershell
+opencode2 plugin add opencode-choose-directory@0.1.1
+```
+
+The package is available at [npmjs.com/package/opencode-choose-directory](https://www.npmjs.com/package/opencode-choose-directory).
+
+### Manual configuration
+
+You can also add the npm package directly to `~/.config/opencode/cli.json`:
+
+```json
+{
+  "plugins": [
+    "opencode-choose-directory@latest"
+  ]
+}
+```
+
+Preserve any existing entries in `plugins`, then restart `opencode2`.
+
+### GitHub source installation
+
+To run the plugin directly from source, clone the repository into your OpenCode configuration directory:
 
 ```powershell
 git clone https://github.com/huahai0202/opencode-choose-directory.git `
@@ -31,7 +68,7 @@ Set-Location "$HOME\.config\opencode\plugins\opencode-choose-directory"
 npm install
 ```
 
-Add the TUI entrypoint to `~/.config/opencode/cli.json`. Replace `<USER>` with your Windows user name:
+Add the cloned TUI entrypoint to `~/.config/opencode/cli.json`. Replace `<USER>` with your Windows user name:
 
 ```json
 {
@@ -41,7 +78,19 @@ Add the TUI entrypoint to `~/.config/opencode/cli.json`. Replace `<USER>` with y
 }
 ```
 
-Preserve any existing entries in `plugins`, then restart `opencode2`.
+### Update and uninstall
+
+Install the newest npm release:
+
+```powershell
+opencode2 plugin add opencode-choose-directory@latest
+```
+
+Remove the plugin from the global configuration:
+
+```powershell
+opencode2 plugin remove opencode-choose-directory
+```
 
 ## How It Works
 
