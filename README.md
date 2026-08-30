@@ -39,7 +39,7 @@ Restart `opencode2` after installation.
 To install a specific version:
 
 ```powershell
-opencode2 plugin add opencode-choose-directory@0.1.2
+opencode2 plugin add opencode-choose-directory@0.1.3
 ```
 
 The package is available at [npmjs.com/package/opencode-choose-directory](https://www.npmjs.com/package/opencode-choose-directory).
@@ -100,8 +100,9 @@ opencode2 plugin remove opencode-choose-directory
 3. Clicking the button launches hidden Windows PowerShell in STA mode.
 4. PowerShell creates the native `IFileDialog` COM picker with `FOS_PICKFOLDERS`.
 5. The selected path is returned as UTF-8 Base64 between fixed markers.
-6. The plugin updates the OpenCode home route with the selected `location`.
-7. OpenCode creates a session in that location when the first prompt is submitted.
+6. The plugin resolves the path through OpenCode and preloads the location-scoped agent/model catalogs.
+7. The plugin delegates the active-location update to OpenCode's built-in `session.cd` command.
+8. OpenCode creates a session in that location when the first prompt is submitted.
 
 ## Development
 

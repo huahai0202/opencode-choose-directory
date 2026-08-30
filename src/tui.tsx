@@ -193,14 +193,37 @@ async function setHomeDirectory(context: Context, directory: string) {
   const info = await stat(directory)
   if (!info.isDirectory()) throw new Error("The selected path is not a directory")
 
-  // OpenCode V2 stores the next session location on the home route. The
-  // published plugin type does not expose HomeRoute.location yet.
+  // Resolve the path through OpenCode so workspace metadata and path
+  // normalization are preserved instead of passing a raw directory only.
+  const resolved = await context.client.location.get({ location: { directory } })
+  const location = {
+    directory: resolved.directory,
+    ...(resolved.workspaceID ? { workspaceID: resolved.workspaceID } : {}),
+  }
+
+  // The first home prompt requires location-scoped catalogs. Load the critical
+  // ones before exposing the selected location to the composer.
+  await Promise.all([
+    context.data.location.agent.sync(location),
+    context.data.location.model.sync(location),
+    context.data.location.provider.sync(location),
+  ])
+
+  // Update the home route immediately so the prompt has a synchronous target.
+  // The published plugin type does not expose HomeRoute.location yet.
   context.ui.router.navigate({
     type: "home",
-    location: { directory },
+    location,
   } as unknown as Parameters<Context["ui"]["router"]["navigate"]>[0])
+
+  // Let the host also update its LocationProvider through the built-in /cd
+  // path. This keeps session creation and prompt submission on the same path
+  // as OpenCode itself while this plugin registers no command or shortcut.
+  if (context.keymap.commands().some((command) => command.id === "session.cd")) {
+    context.keymap.dispatch("session.cd", location.directory)
+  }
   context.ui.toast.show({
-    message: `Working directory set to ${context.ui.format.path(directory)}`,
+    message: `Working directory set to ${context.ui.format.path(location.directory)}`,
     variant: "success",
   })
 }
