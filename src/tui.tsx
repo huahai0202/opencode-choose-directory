@@ -215,20 +215,13 @@ async function setHomeDirectory(context: Context, directory: string) {
     type: "home",
     location,
   } as unknown as Parameters<Context["ui"]["router"]["navigate"]>[0])
-
-  // Let the host also update its LocationProvider through the built-in /cd
-  // path. This keeps session creation and prompt submission on the same path
-  // as OpenCode itself while this plugin registers no command or shortcut.
-  if (context.keymap.commands().some((command) => command.id === "session.cd")) {
-    context.keymap.dispatch("session.cd", location.directory)
-  }
   context.ui.toast.show({
     message: `Working directory set to ${context.ui.format.path(location.directory)}`,
     variant: "success",
   })
 }
 
-function DirectoryButton(props: { onClick: () => void }) {
+function DirectoryButton(props: { onClick: () => void; onMouseDown: () => void }) {
   return (
     <box
       border={["left", "right"]}
@@ -244,6 +237,7 @@ function DirectoryButton(props: { onClick: () => void }) {
       paddingLeft={1}
       paddingRight={1}
       justifyContent="center"
+      onMouseDown={props.onMouseDown}
       onMouseUp={props.onClick}
     >
       <text fg="#a7c080">选择目录</text>
@@ -257,9 +251,22 @@ export default Plugin.define({
     if (process.platform !== "win32") return
 
     let running = false
+    let promptEditor: { readonly isDestroyed: boolean; focus: () => void } | undefined
+    const rememberPromptFocus = () => {
+      const editor = context.renderer.currentFocusedEditor
+      if (editor) promptEditor = editor
+    }
+    const restorePromptFocus = () => {
+      const editor = promptEditor
+      if (!editor || editor.isDestroyed) return
+      setTimeout(() => {
+        if (!editor.isDestroyed) editor.focus()
+      }, 0)
+    }
     const run = async () => {
       if (running) return
       running = true
+      rememberPromptFocus()
       try {
         const current = context.location?.directory ?? context.data.location.default().directory
         const selected = await pickDirectory(current)
@@ -271,6 +278,7 @@ export default Plugin.define({
           variant: "error",
         })
       } finally {
+        restorePromptFocus()
         running = false
       }
     }
@@ -279,7 +287,8 @@ export default Plugin.define({
       // The outer footer renders status/file content first, so appending here
       // keeps the button at the far right regardless of plugin load order.
       append: "prompt.footer",
-      render: ({ sessionID }) => (sessionID ? <></> : <DirectoryButton onClick={() => void run()} />),
+      render: ({ sessionID }) =>
+        sessionID ? <></> : <DirectoryButton onMouseDown={rememberPromptFocus} onClick={() => void run()} />,
     })
   },
 })
