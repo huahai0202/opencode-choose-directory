@@ -221,14 +221,16 @@ async function setHomeDirectory(context: Context, directory: string) {
   })
 }
 
-function DirectoryButton(props: { onClick: () => void; onMouseDown: () => void }) {
+function DirectoryButton(props: {
+  context: Context
+  onClick: () => void
+  onMouseDown: () => void
+}) {
+  // 常态低调深柔和色，无任何交互反馈
+  const dimColor = "#7a8478" // Everforest 次级深灰绿（低调收敛）
+
   return (
     <box
-      border={["left", "right"]}
-      borderStyle="rounded"
-      borderColor="#a7c080"
-      backgroundColor="#343f44"
-      width={12}
       height={1}
       alignSelf="flex-start"
       flexShrink={0}
@@ -237,10 +239,11 @@ function DirectoryButton(props: { onClick: () => void; onMouseDown: () => void }
       paddingLeft={1}
       paddingRight={1}
       justifyContent="center"
+      alignItems="center"
       onMouseDown={props.onMouseDown}
       onMouseUp={props.onClick}
     >
-      <text fg="#a7c080">选择目录</text>
+      <text fg={dimColor}>{"\uf07b"}</text>
     </box>
   )
 }
@@ -288,7 +291,15 @@ export default Plugin.define({
       // keeps the button at the far right regardless of plugin load order.
       append: "prompt.footer",
       render: ({ sessionID }) =>
-        sessionID ? <></> : <DirectoryButton onMouseDown={rememberPromptFocus} onClick={() => void run()} />,
+        sessionID ? (
+          <></>
+        ) : (
+          <DirectoryButton
+            context={context}
+            onMouseDown={rememberPromptFocus}
+            onClick={() => void run()}
+          />
+        ),
     })
   },
 })
