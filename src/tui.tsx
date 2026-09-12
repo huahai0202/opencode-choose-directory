@@ -1,13 +1,11 @@
 /** @jsxImportSource @opentui/solid */
 
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { stat } from "node:fs/promises"
 import { join } from "node:path"
-import { promisify } from "node:util"
 import { Plugin } from "@opencode-ai/plugin/tui"
 import type { Context } from "@opencode-ai/plugin/tui/context"
 
-const execFileAsync = promisify(execFile)
 const BEGIN_MARKER = "__OPENCODE_DIRECTORY_BEGIN__"
 const END_MARKER = "__OPENCODE_DIRECTORY_END__"
 const CANCEL_MARKER = "__OPENCODE_DIRECTORY_CANCEL__"
@@ -127,29 +125,6 @@ public static class OpenCodeFolderPicker
 }
 `
 
-// One-shot fallback: starts a fresh process, compiles the helper, shows the
-// dialog once, and exits. Used only when the warm worker cannot start.
-function buildOneShotScript() {
-  return `$ErrorActionPreference = "Stop"
-
-$source = @'
-${CSHARP_SOURCE}'@
-
-Add-Type -TypeDefinition $source -ErrorAction Stop
-$selected = [OpenCodeFolderPicker]::Pick(
-  $env:OPENCODE_INITIAL_DIRECTORY,
-  $env:OPENCODE_PICKER_TITLE,
-  $env:OPENCODE_PICKER_OK_LABEL
-)
-if ($selected) {
-  $bytes = [System.Text.Encoding]::UTF8.GetBytes($selected)
-  Write-Output "${BEGIN_MARKER}"
-  Write-Output ([System.Convert]::ToBase64String($bytes))
-  Write-Output "${END_MARKER}"
-}
-`
-}
-
 // Warm worker: compiles the helper once, announces READY, then serves dialog
 // requests read from stdin. The initial directory travels as a Base64 line so
 // the worker never needs to restart.
@@ -211,49 +186,6 @@ function encodePowerShellCommand(script: string) {
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error)
-}
-
-function decodeStdout(output: string | Uint8Array) {
-  return typeof output === "string" ? output : Buffer.from(output).toString("utf8")
-}
-
-function readSelectedPath(stdout: string) {
-  const lines = stdout.split(/\r?\n/).map((line: string) => line.trim())
-  const begin = lines.indexOf(BEGIN_MARKER)
-  const end = lines.indexOf(END_MARKER, begin + 1)
-  if (begin < 0 || end <= begin + 1) return undefined
-
-  const encodedPath = lines.slice(begin + 1, end).join("")
-  if (!encodedPath) return undefined
-  return Buffer.from(encodedPath, "base64").toString("utf8").trim() || undefined
-}
-
-async function pickDirectoryOnce(initialDirectory: string) {
-  const result = await execFileAsync(
-    powershellPath(),
-    [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-STA",
-      "-WindowStyle",
-      "Hidden",
-      "-EncodedCommand",
-      encodePowerShellCommand(buildOneShotScript()),
-    ],
-    {
-      env: {
-        ...process.env,
-        OPENCODE_INITIAL_DIRECTORY: initialDirectory,
-        OPENCODE_PICKER_TITLE: "选择工作目录",
-        OPENCODE_PICKER_OK_LABEL: "选择文件夹",
-      },
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    },
-  )
-
-  return readSelectedPath(decodeStdout((result as { stdout: string | Uint8Array }).stdout))
 }
 
 interface PendingPick {
@@ -453,15 +385,6 @@ class DirectoryPicker {
   }
 }
 
-async function chooseDirectory(picker: DirectoryPicker, initialDirectory: string) {
-  try {
-    return await picker.pick(initialDirectory)
-  } catch {
-    // The warm worker is unavailable: fall back to a one-shot process.
-    return await pickDirectoryOnce(initialDirectory)
-  }
-}
-
 async function setHomeDirectory(context: Context, directory: string) {
   const info = await stat(directory)
   if (!info.isDirectory()) throw new Error("The selected path is not a directory")
@@ -555,7 +478,7 @@ export default Plugin.define({
       rememberPromptFocus()
       try {
         const current = context.location?.directory ?? context.data.location.default().directory
-        const selected = await chooseDirectory(picker, current)
+        const selected = await picker.pick(current)
         if (selected) await setHomeDirectory(context, selected)
       } catch (error) {
         context.ui.toast.show({
