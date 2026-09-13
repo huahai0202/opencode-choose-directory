@@ -11,6 +11,7 @@ const END_MARKER = "__OPENCODE_DIRECTORY_END__"
 const CANCEL_MARKER = "__OPENCODE_DIRECTORY_CANCEL__"
 const READY_MARKER = "__OPENCODE_PICKER_READY__"
 const QUIT_COMMAND = "__OPENCODE_PICKER_QUIT__"
+const OWNER_MARKER = "__OPENCODE_PICKER_OWNER__"
 
 // The native Windows common dialog in folder mode. This provides the
 // Explorer-style navigation UI instead of the legacy WinForms tree dialog.
@@ -84,12 +85,28 @@ public static class OpenCodeFolderPicker
         ref Guid interfaceId,
         [MarshalAs(UnmanagedType.Interface)] out IShellItem item);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnableWindow(IntPtr hWnd, bool enable);
+
+    // Returns the handle of the terminal the user just clicked in. The dialog
+    // is owned by that window so it always opens above the terminal instead of
+    // being hidden behind it by the Windows foreground lock.
+    public static long GetForegroundOwner()
+    {
+        return GetForegroundWindow().ToInt64();
+    }
+
     public static string Pick(string initialDirectory, string title, string okButtonLabel)
     {
         IFileDialog dialog = null;
         IShellItem initial = null;
         IShellItem result = null;
         IntPtr displayName = IntPtr.Zero;
+        IntPtr owner = GetForegroundWindow();
 
         try
         {
@@ -109,13 +126,17 @@ public static class OpenCodeFolderPicker
                 }
             }
 
-            if (dialog.Show(IntPtr.Zero) != 0) return null;
+            if (dialog.Show(owner) != 0) return null;
             dialog.GetResult(out result);
             result.GetDisplayName(SIGDN.FILESYSPATH, out displayName);
             return displayName == IntPtr.Zero ? null : Marshal.PtrToStringUni(displayName);
         }
         finally
         {
+            // Show() disables the owner while the dialog is modal. Re-enable it
+            // in case Show() throws before its own cleanup runs, which would
+            // leave the terminal frozen for input.
+            if (owner != IntPtr.Zero) EnableWindow(owner, true);
             if (displayName != IntPtr.Zero) Marshal.FreeCoTaskMem(displayName);
             if (result != null) Marshal.FinalReleaseComObject(result);
             if (initial != null) Marshal.FinalReleaseComObject(initial);
@@ -124,6 +145,29 @@ public static class OpenCodeFolderPicker
     }
 }
 `
+
+// If the worker is killed while the native dialog is still open, the dialog
+// manager never gets to re-enable the owner window (the terminal), which would
+// leave the terminal frozen for input. A detached throwaway process re-enables
+// that exact window after the worker is gone.
+function buildReenableScript(hwnd: string) {
+  return `$ErrorActionPreference = "SilentlyContinue"
+$source = @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class OpenCodePickerOwnerReenable
+{
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnableWindow(IntPtr hWnd, bool enable);
+}
+'@
+Add-Type -TypeDefinition $source
+Start-Sleep -Milliseconds 500
+[OpenCodePickerOwnerReenable]::EnableWindow([IntPtr]${hwnd}, $true) | Out-Null
+`
+}
 
 // Warm worker: compiles the helper once, announces READY, then serves dialog
 // requests read from stdin. The initial directory travels as a Base64 line so
@@ -152,6 +196,17 @@ while ($true) {
     $initial = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($line))
   } catch {
     $initial = ""
+  }
+
+  $owner = 0
+  try {
+    $owner = [OpenCodeFolderPicker]::GetForegroundOwner()
+  } catch {
+    $owner = 0
+  }
+  if ($owner -ne 0) {
+    [Console]::Out.WriteLine("${OWNER_MARKER}:$owner")
+    [Console]::Out.Flush()
   }
 
   $selected = $null
@@ -214,6 +269,8 @@ interface WorkerHandle {
 class DirectoryPicker {
   private handle: WorkerHandle | undefined
   private disposed = false
+  /** HWND of the terminal window owning the currently open native dialog. */
+  private activeOwnerHwnd: string | undefined
 
   constructor(
     private readonly command: string,
@@ -247,6 +304,7 @@ class DirectoryPicker {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    this.reenableOwner()
     const handle = this.handle
     this.handle = undefined
     if (!handle) return
@@ -326,6 +384,18 @@ class DirectoryPicker {
     ]
   }
 
+  private reenableArguments(hwnd: string) {
+    return [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-WindowStyle",
+      "Hidden",
+      "-EncodedCommand",
+      encodePowerShellCommand(buildReenableScript(hwnd)),
+    ]
+  }
+
   private fail(handle: WorkerHandle, error: Error) {
     if (!handle.readySettled) {
       handle.readySettled = true
@@ -337,7 +407,31 @@ class DirectoryPicker {
       handle.pending = undefined
       pending.reject(error)
     }
+    // The worker may have died while the dialog was still open; the dialog
+    // manager never ran its cleanup, so re-enable the terminal window.
+    this.reenableOwner()
     if (this.handle === handle) this.handle = undefined
+  }
+
+  /**
+   * Best-effort cleanup for the case where the worker is killed while the
+   * native dialog is open: spawns a detached process that re-enables the
+   * terminal window the dialog disabled when it took ownership.
+   */
+  private reenableOwner() {
+    const hwnd = this.activeOwnerHwnd
+    this.activeOwnerHwnd = undefined
+    if (!hwnd || !/^\d+$/.test(hwnd)) return
+    try {
+      const child = spawn(this.command, this.reenableArguments(hwnd), {
+        windowsHide: true,
+        stdio: "ignore",
+      })
+      child.on("error", () => {})
+    } catch {
+      // The terminal keeps working for everything except a stuck enable state;
+      // nothing useful to do here.
+    }
   }
 
   private onData(handle: WorkerHandle, chunk: string) {
@@ -360,6 +454,14 @@ class DirectoryPicker {
       return
     }
 
+    const ownerLine = line.startsWith(`${OWNER_MARKER}:`)
+      ? line.slice(OWNER_MARKER.length + 1)
+      : undefined
+    if (ownerLine && handle.pending && /^\d+$/.test(ownerLine)) {
+      this.activeOwnerHwnd = ownerLine
+      return
+    }
+
     const pending = handle.pending
     if (!pending || pending.settled) return
 
@@ -371,6 +473,7 @@ class DirectoryPicker {
     if (line === END_MARKER) {
       pending.settled = true
       handle.pending = undefined
+      this.activeOwnerHwnd = undefined
       const encoded = pending.captured.join("")
       pending.resolve(encoded ? Buffer.from(encoded, "base64").toString("utf8").trim() || undefined : undefined)
       return
@@ -378,6 +481,7 @@ class DirectoryPicker {
     if (line === CANCEL_MARKER) {
       pending.settled = true
       handle.pending = undefined
+      this.activeOwnerHwnd = undefined
       pending.resolve(undefined)
       return
     }
